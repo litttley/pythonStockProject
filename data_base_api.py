@@ -1,0 +1,2 @@
+class BaoStockApi(object):
+    pass
