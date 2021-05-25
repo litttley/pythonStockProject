@@ -15,3 +15,5 @@ if __name__ == '__main__':
         SqlAction.insert_codes(sz50_stocks)
         SqlAction.insert_codes(hs300_stocks)
         SqlAction.insert_codes(sz500_stocks)
+
+
