@@ -1,7 +1,7 @@
 import baostock as bs
 import pandas as pd
 from dbPools import MySqlPool
-
+from option import Result, Option, Ok, Err
 
 class BaoStockApi(object):
 
@@ -85,8 +85,6 @@ class BaoStockApi(object):
         return data_list, rs.fields
 
 
-
-
 def db_conn(func):
     def wrapper(*args, **kw):
         with MySqlPool() as db:
@@ -154,17 +152,17 @@ class SqlAction(object):
             results = db.cursor.fetchall()
             if not results:  # 结果为空
 
-                for (code , code_name, ipoDate,outDate,type,status) in stocks:
-                    insert_sql_arr.append((code , code_name, ipoDate,outDate,type,status))
+                for (code, code_name, ipoDate, outDate, type, status) in stocks:
+                    insert_sql_arr.append((code, code_name, ipoDate, outDate, type, status))
 
             else:
                 code_set = set(result['code'] for result in results)
 
-                for (code , code_name, ipoDate,outDate,type,status) in stocks:
+                for (code, code_name, ipoDate, outDate, type, status) in stocks:
                     if code in code_set:  # 已存在数据库中更新
-                        update_sql_arr.append(( code_name, ipoDate,outDate,type,status,code))
+                        update_sql_arr.append((code_name, ipoDate, outDate, type, status, code))
                     else:
-                        insert_sql_arr.append((code , code_name, ipoDate,outDate,type,status))
+                        insert_sql_arr.append((code, code_name, ipoDate, outDate, type, status))
             if len(insert_sql_arr) != 0:
                 excute_result = db.cursor.executemany(insert_sql, insert_sql_arr)
                 print('执行插入成功%s条数据' % excute_result)
@@ -261,12 +259,13 @@ class SqlAction(object):
     @staticmethod
     @db_conn
     def get_buy_point_stock_info(db):
-        sql = "SELECT `code`,`date`,`close`,mad_5,mad_10,mad_20 ,mad_5_angle,mad_10_angle,mad_20_angle" \
-              " FROM day_data where is_send='N'"
+        sql = "SELECT cs.`code_name`,dd.`code`,dd.`date`,dd.`close`,dd.mad_5,dd.mad_10,dd.mad_20 ,dd.mad_5_angle,dd.mad_10_angle,dd.mad_20_angle" \
+              " FROM day_data dd  left join codes cs on dd.`code`=cs.`code`  where dd.is_send='N'"
         try:
             db.cursor.execute(sql)
             results = db.cursor.fetchall()
-            result = [(x['code'], x['date'], x['close'], x['mad_5'], x['mad_10'], x['mad_20'], x['mad_5_angle'],
+            result = [(x['code_name'], x['code'], x['date'], x['close'], x['mad_5'], x['mad_10'], x['mad_20'],
+                       x['mad_5_angle'],
                        x['mad_10_angle'], x['mad_20_angle']) for x in results]
             return result
         except Exception as e:
@@ -276,13 +275,41 @@ class SqlAction(object):
     @staticmethod
     @db_conn
     def get_all_buy_point_stock_info(db):
-        sql = "SELECT `code`,`date`,`close`,mad_5,mad_10,mad_20 ,mad_5_angle,mad_10_angle,mad_20_angle" \
-              " FROM all_day_data where is_send='N'"
+        sql = "SELECT cs.`code_name`, dd.`code`,dd.`date`,dd.`close`,dd.mad_5,dd.mad_10,mad_20 ,dd.mad_5_angle,dd.mad_10_angle," \
+              "dd.mad_20_angle  FROM all_day_data  dd left join all_codes cs on dd.`code`=cs.`code`  where dd.is_send='N'"
         try:
             db.cursor.execute(sql)
             results = db.cursor.fetchall()
-            result = [(x['code'], x['date'], x['close'], x['mad_5'], x['mad_10'], x['mad_20'], x['mad_5_angle'],
+            result = [(x['code_name'], x['code'], x['date'], x['close'], x['mad_5'], x['mad_10'], x['mad_20'],
+                       x['mad_5_angle'],
                        x['mad_10_angle'], x['mad_20_angle']) for x in results]
+            return result
+        except Exception as e:
+            print(e)
+            return []
+
+    @staticmethod
+    @db_conn
+    def get_low_point_up_stock_info(db):
+        sql = "SELECT cs.`code_name`, lpp.`code`,lpp.`date`,lpp.`close`,lpp.low_4_percent ,lpp.low_8_percent,lpp.low_10_percent FROM low_point_up lpp left join all_codes cs on lpp.`code`=cs.`code`  where lpp.low_4_percent !='' and lpp.is_send='N' ORDER BY lpp.turn desc"
+        try:
+            db.cursor.execute(sql)
+            results = db.cursor.fetchall()
+            result = [(x['code_name'], x['code'], x['date'], x['close'], x['low_4_percent'], x['low_8_percent']
+                       , x['low_10_percent']) for x in results]
+            return result
+        except Exception as e:
+            print(e)
+            return []
+
+    @staticmethod
+    @db_conn
+    def get_turn_rate_stock_info(db):
+        sql = "SELECT cs.`code_name`, tr.`code`,tr.`date`,tr.`close` ,tr.turn FROM turn_rate tr left join all_codes cs on tr.`code`=cs.`code`  where   tr.is_send='N' ORDER BY tr.turn desc"
+        try:
+            db.cursor.execute(sql)
+            results = db.cursor.fetchall()
+            result = [(x['code_name'], x['code'], x['date'], x['close'], x['turn']) for x in results]
             return result
         except Exception as e:
             print(e)
@@ -307,6 +334,69 @@ class SqlAction(object):
             db.cursor.executemany(updated_sql, update_array)
         except Exception as e:
             print(e)
+
+    @staticmethod
+    @db_conn
+    def updated_turn_rate_stock_info(db, updated_array):
+        try:
+            updated_sql = "update `day_data` set is_send='Y' where `code`=%s; "
+            update_array = [(x,) for x in updated_array]
+            db.cursor.executemany(updated_sql, update_array)
+        except Exception as e:
+            print(e)
+
+    @staticmethod
+    @db_conn
+    def insert_low_point_up(db, day_data,low_close_price_4, low_close_price_8, low_close_price_10):
+
+        try:
+            insert_sql = 'INSERT INTO `low_point_up` (`code`, `date`, `open`, `high`, `low`, `close`, `preclose`, `volume`, `amount`, `adjustflag`, `turn`, `tradestatus`, `ctChg`,  `isST`,low_4_percent,low_8_percent,low_10_percent,`is_send`) VALUES (%s, %s,%s, %s, %s, %s, %s, %s, %s, %s, %s, %s,  %s,  %s,%s,%s,%s,%s);'
+            insert_array = []
+            date, code, open, high, low, close, preclose, volume, amount, adjustflag, turn, tradestatus, pctChg, isST = \
+                day_data[0]
+
+            insert_array.append(
+                (code, date, open, high, low, close, preclose, volume, amount, adjustflag, turn, tradestatus, pctChg,
+                 isST, low_close_price_4, low_close_price_8, low_close_price_10, 'N'))
+            excute_result = db.cursor.executemany(insert_sql, insert_array)
+            print(excute_result)
+            print('执行插入成功%s条数据' % excute_result)
+        except Exception as e:
+            print(e)
+            print(insert_array)
+
+    @staticmethod
+    @db_conn
+    def insert_turn_rate(db, day_data, mad_5, mad_10, mad_20, mad_5_angle, mad_10_angle, mad_20_angle):
+
+        try:
+            insert_sql = 'INSERT INTO `turn_rate` (`code`, `date`, `open`, `high`, `low`, `close`, `preclose`, `volume`, `amount`, `adjustflag`, `turn`, `tradestatus`, `ctChg`,  `isST`,`mad_5`,`mad_10`,`mad_20`,`mad_5_angle`,`mad_10_angle`,`mad_20_angle`,`is_send`)' \
+                         ' VALUES (%s, %s,%s, %s, %s, %s, %s, %s, %s, %s, %s, %s,  %s,  %s,%s,%s,%s,%s,%s,%s,%s);'
+            insert_array = []
+            date, code, open, high, low, close, preclose, volume, amount, adjustflag, turn, tradestatus, pctChg, isST = \
+                day_data[0]
+
+            insert_array.append(
+                (code, date, open, high, low, close, preclose, volume, amount, adjustflag, turn, tradestatus, pctChg,
+                 isST, mad_5, mad_10, mad_20, mad_5_angle, mad_10_angle, mad_20_angle, 'N'))
+            excute_result = db.cursor.executemany(insert_sql, insert_array)
+            print(excute_result)
+            print('执行插入成功%s条数据' % excute_result)
+        except Exception as e:
+            print(e)
+            print(insert_array)
+
+    @staticmethod
+    @db_conn
+    def updated_low_point_up_stock_info(db, stock_codes):
+        try:
+            updated_sql = "update `low_point_up` set is_send='Y' where `code`=%s; "
+            update_array = [(x,) for x in stock_codes]
+            db.cursor.executemany(updated_sql, update_array)
+        except Exception as e:
+            print(e)
+
+
 
 
 if __name__ == '__main__':
